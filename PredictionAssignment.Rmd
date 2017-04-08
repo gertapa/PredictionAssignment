@@ -1,0 +1,106 @@
+---
+title: "Prediction Assignment Exercise"
+output: html_document
+---
+
+## Goal
+
+The goal of the exercise is to create a Machine Learning Model in order to predict the manner in which people perform different activities from a given set of accelerometers data. 
+
+## Data Exploration and Cleaning
+
+```{r}
+# prepare training data and convert timestamp to date
+rawData <- read.csv(file="pml-training.csv", na.strings = c("", "#DIV/0!", "NA"))
+rawData <- rawData[, c(-1, -4)] # remove unwanted column
+rawData$raw_timestamp_part_1 <- as.POSIXct(as.numeric(as.character(rawData$raw_timestamp_part_1)),origin="1970-01-01",tz="GMT")
+```
+
+The training data consist 19622 entries with 160 varaibles. The feature that should be predicted is the `classe` of the performed activity. Additional to the accelerometers numeric data there is the variable `x` that acts as counter for each row in the data set. There are also time related variables namely `raw_timestamp_part_1` which is the timestamp in seconds granularity of the measurement, `cvtd_timestamp` which contain the same information but has only minuts granularity and `raw_timestamp_part_2` which seems to be a counter that is growing for each window of measurement. The `new_window` and `num_window` variables describe the window in which the activity took place.
+
+For cleaning up the data I removed the counter column because it does not relate to for the actual performed exercise and could influence the prediction model.
+
+I Also removed the `cvtd_timestamp` variable because it contains the same information than `raw_timestamp_part_1` which I converted to a POSIXct timestamp.
+
+```{r warning=FALSE, message=FALSE}
+library(caret)
+nsv <- nearZeroVar(rawData, saveMetrics=TRUE)
+trainingZV <- rawData[, -nsv$nzv == FALSE]
+```
+In order to keep only variables that contribute to a better model we first try to eliminate those that have near zero variance.
+
+## Cross Validation
+```{r}
+inTrain <- createDataPartition(y=trainingZV$classe, p=0.6, list=FALSE)
+validation <- trainingZV[-inTrain, ]
+training   <- trainingZV[inTrain, ]
+```
+
+For cross validation I split the training data into a training and validation portion in order to be able to measure performance of the generated models. The ration of splitting is 60% for training and 40% for validation.
+
+## Impute NA values
+
+```{r}
+preTrainingZV <- preProcess(training, method=c("knnImpute"))
+
+imputedTraining   <- predict(preTrainingZV, training)
+imputedValidation <- predict(preTrainingZV, validation)
+```
+
+Because the data contain a lot of NA values I have decided to impute the missing data in a pre processing step. The same model for imputing the data must be run on the validation set and the test set as well.
+
+
+## Prediction with Decition Tree
+
+```{r warning=FALSE, message=FALSE}
+rpartModel <- train(classe ~ ., method="rpart", data=imputedTraining)
+rpartPrediction <- predict(rpartModel, imputedValidation)
+
+library(rattle)
+fancyRpartPlot(rpartModel$finalModel)
+confusionMatrix(rpartPrediction, imputedValidation$classe)
+```
+
+
+The first method to try is the Decition Tree. When creating a model with the `rpart` method we can see that the achieved overall accuracy is very low and only slightly above `50%`. The prediction for classe D is very bad and cannot be predicted with this model at all.
+
+## Prediction with Random Forest
+
+```{r warning=FALSE, message=FALSE}
+library(randomForest)
+rfModel      <- randomForest(classe ~ ., data=imputedTraining, method='class')
+rfPrediction <- predict(rfModel, imputedValidation, type='class') 
+
+confusionMatrix(rfPrediction, validation$classe)
+varImpPlot(rfModel)
+```
+
+The second model to try is the Random Forest method. This method provides a very good prediction accuracy of more than `99%` where onyl a hand full of values cannot be predected correctly. From the varImpPlot we can see the variables that have the highest impact on the model.
+
+## Conclusion
+
+From the two methods I have tried the Random Forrest method provides a much better accuracy. therefore this is the model I will use for predicting the class of the testing data.
+
+## Out Of Sample Error
+
+From the validation results we can see that the expected out of sample error of the model is below 3%.
+
+## Apply best model on Test Data
+
+```{r}
+# prepare testing data and convert timestamp to date
+testing <- read.csv(file="pml-testing.csv", na.strings = c("", "#DIV/0!", "NA"))
+testing <- testing[, c(-1, -4)] # remove unwanted column
+testing$raw_timestamp_part_1 <- as.POSIXct(as.numeric(as.character(testing$raw_timestamp_part_1)),origin="1970-01-01",tz="GMT")
+
+# remove columns with zero variablility
+testingZV <- testing[, -nsv$nzv == FALSE]
+
+# make sure the types are equal to the training model
+nt <- rbind(testingZV[, -122], trainingZV[1, -122])
+testingZV <- nt[-21 ,]
+
+# impute test data
+imputedTest <- predict(preTrainingZV, testingZV)
+```
+In order to apply the model on the test data we have to make sure the layout of the data is the same as on the training data. Therefore we have to replicate the classes of the varaibles to the test data set.
