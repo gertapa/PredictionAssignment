@@ -1,0 +1,24 @@
+---
+title: "Week3Assignment"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## R Markdown Presentation & Plotly
+
+April 21, 2017
+
+## Slide with Plot of ChickWeight dataset
+
+Print the Weight of Chicken over Time. Colored by Diet 1-4.
+
+```{r warning=FALSE, message=FALSE}
+library(plotly)
+plot_ly(ChickWeight, x=ChickWeight$weight, y=ChickWeight$Time, 
+        mode="markers", color = factor(ChickWeight$Diet))
+```
+
+## End of Presentation
